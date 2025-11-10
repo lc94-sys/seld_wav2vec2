@@ -200,17 +200,17 @@ class RAGEvaluator:
         
         return relevant_terms / len(query_keywords)
     
-    def run_evaluation(self, test_cases: List[Dict]) -> Dict[str, Any]:
+    def run_evaluation(self, retriever, test_cases: List[Dict]) -> Dict[str, Any]:
         """
-        Run evaluation on multiple test cases
+        Run evaluation on multiple test cases using the actual retriever
         
         Args:
+            retriever: HybridRetriever instance to test
             test_cases: List of test cases, each containing:
                 - query: str
-                - ground_truth_docs: List[str] (relevant doc IDs)
-                - reference_answer: str
-                - generated_answer: str
-                - retrieved_chunks: List[Dict]
+                - entitlement: str
+                - ground_truth_docs: List[str] (optional - for retrieval evaluation)
+                - reference_answer: str (optional - for answer evaluation)
                 
         Returns:
             Aggregated evaluation results
@@ -218,20 +218,81 @@ class RAGEvaluator:
         all_results = []
         
         for test_case in test_cases:
-            # Evaluate retrieval
-            retrieval_metrics = self.evaluate_retrieval(
-                test_case['query'],
-                test_case['retrieved_chunks'],
-                test_case['ground_truth_docs']
+            # Actually run your model to get results
+            chunks = retriever.hybrid_search(
+                query=test_case['query'],
+                entitlement=[test_case.get('entitlement', 'default')],
+                top_k=test_case.get('top_k', 5)
             )
             
-            # Evaluate generation
-            generation_metrics = self.evaluate_answer_quality(
-                test_case['query'],
-                test_case['generated_answer'],
-                test_case['reference_answer'],
-                test_case['retrieved_chunks']
+            # Generate answer using your model
+            response = retriever.generate_answer(
+                query=test_case['query'],
+                context_chunks=chunks
             )
+            
+            results = {}
+            
+            # Evaluate retrieval if ground truth docs provided
+            if 'ground_truth_docs' in test_case:
+                results['retrieval'] = self.evaluate_retrieval(
+                    test_case['query'],
+                    chunks,
+                    test_case['ground_truth_docs']
+                )
+            
+            # Evaluate generation if reference answer provided
+            if 'reference_answer' in test_case:
+                results['generation'] = self.evaluate_answer_quality(
+                    test_case['query'],
+                    response['answer'],
+                    test_case['reference_answer'],
+                    chunks
+                )
+            
+            # Always evaluate faithfulness (no ground truth needed)
+            results['faithfulness'] = self._check_faithfulness(
+                response['answer'],
+                chunks
+            )
+            
+            # Always evaluate relevance (no ground truth needed)
+            results['relevance'] = self._check_relevance(
+                response['answer'],
+                test_case['query']
+            )
+            
+            all_results.append(results)
+        
+        # Calculate averages
+        avg_results = {
+            'total_cases': len(test_cases),
+            'faithfulness': np.mean([r['faithfulness'] for r in all_results]),
+            'relevance': np.mean([r['relevance'] for r in all_results])
+        }
+        
+        # Add retrieval metrics if available
+        if any('retrieval' in r for r in all_results):
+            retrieval_results = [r['retrieval'] for r in all_results if 'retrieval' in r]
+            avg_results['retrieval'] = {
+                'precision_at_k': np.mean([r['precision_at_k'] for r in retrieval_results]),
+                'recall_at_k': np.mean([r['recall_at_k'] for r in retrieval_results]),
+                'mrr': np.mean([r['mrr'] for r in retrieval_results]),
+                'ndcg': np.mean([r['ndcg'] for r in retrieval_results])
+            }
+        
+        # Add generation metrics if available
+        if any('generation' in r for r in all_results):
+            generation_results = [r['generation'] for r in all_results if 'generation' in r]
+            avg_results['generation'] = {
+                'exact_match': np.mean([r['exact_match'] for r in generation_results]),
+                'token_f1': np.mean([r['token_f1'] for r in generation_results]),
+                'faithfulness': np.mean([r['faithfulness'] for r in generation_results]),
+                'completeness': np.mean([r['completeness'] for r in generation_results]),
+                'relevance': np.mean([r['relevance'] for r in generation_results])
+            }
+        
+        return avg_results
             
             all_results.append({
                 'retrieval': retrieval_metrics,
@@ -289,22 +350,30 @@ class RAGEvaluator:
 
 # Example usage
 if __name__ == "__main__":
-    # Example test case
-    evaluator = RAGEvaluator()
+    from src.core.orchestrate import HybridRetriever
     
+    # Initialize evaluator and retriever
+    evaluator = RAGEvaluator()
+    retriever = HybridRetriever()
+    
+    # Test cases only need queries and optional ground truth
     test_cases = [
         {
             "query": "What is machine learning?",
+            "entitlement": "basic",
+            # Optional - only if you have ground truth
             "ground_truth_docs": ["doc1", "doc2"],
-            "reference_answer": "Machine learning is a subset of AI that enables systems to learn from data.",
-            "generated_answer": "Machine learning is a type of artificial intelligence that allows systems to learn from data without being explicitly programmed.",
-            "retrieved_chunks": [
-                {"doc_id": "doc1", "content": "ML content...", "score": 0.9},
-                {"doc_id": "doc3", "content": "Other content...", "score": 0.8}
-            ]
+            "reference_answer": "Machine learning is a subset of AI that enables systems to learn from data."
+        },
+        {
+            "query": "How does deep learning work?",
+            "entitlement": "basic"
+            # No ground truth - will still evaluate faithfulness and relevance
         }
     ]
     
-    results = evaluator.run_evaluation(test_cases)
+    # Run evaluation - it will call your actual model
+    results = evaluator.run_evaluation(retriever, test_cases)
+    
     print("Evaluation Results:")
     print(json.dumps(results, indent=2))
