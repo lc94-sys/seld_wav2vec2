@@ -1,216 +1,188 @@
-# Sound event detection and localization (SELD) with wav2vec2
+# Procedure Document Conflict Analyzer
 
+Analyzes multiple .docx procedure documents to identify conflicting information, then generates well-formatted reports highlighting the conflicts.
 
-# Pre-trained models
+**Supports multiple LLM providers:** OpenAI, Anthropic, Ollama (local), Azure OpenAI
 
-Model Name | Dataset | Model
-|---|---|---
-w2v-SELD BASE | L3DAS21-SELD | [download](https://drive.google.com/file/d/1UxB7gUxQQY1r4DLKMz1dEY12BUUE37A_/view?usp=drive_link)
-w2v-SELD LARGE | L3DAS22-SELD | [download](https://drive.google.com/file/d/178olxS5N6efvmXdM8F6YioWVUYK-UmW-/view?usp=drive_link)
+## Quick Start
 
+```bash
+# Using OpenAI (default)
+export OPENAI_API_KEY="sk-..."
+python run_analysis.py /path/to/your/documents/folder
 
+# Using local Ollama
+python run_analysis.py /path/to/docs --provider ollama
 
-## Data Processing (DVC)
+# Using Anthropic
+export ANTHROPIC_API_KEY="sk-ant-..."
+python run_analysis.py /path/to/docs --provider anthropic
 
-
-The data processing steps are implemented in Data Version Control (DVC) to easy the reproduction process. The steps are presented in ```dvc.yaml``` . 
-The .zip data files are expected to be in ```data/pre-training/raw_3d_audio```. Thus, download all zip files and put inside the folder
-
-```
-cd data/pre-training/raw_3d_audio
-
-tree
-.
-├── L3DAS21
-│   ├── L3DAS_Task1_dev.zip
-│   ├── L3DAS_Task1_test.zip
-│   ├── L3DAS_Task1_train100.zip
-│   ├── L3DAS_Task1_train360.zip
-│   ├── L3DAS_Task2_dev.zip
-│   ├── L3DAS_Task2_test.zip
-│   └── L3DAS_Task2_train.zip
-├── L3DAS22
-│   └── l3das22.zip
-├── TAU_2019
-│   ├── foa_dev_full.zip
-│   ├── foa_eval.zip
-│   ├── metadata_dev.zip
-│   ├── metadata_eval.zip
-│   ├── mic_dev_full.zip
-│   └── mic_eval.zip
-├── TAU_2020
-│   ├── foa_dev_full.zip
-│   ├── foa_eval.zip
-│   ├── metadata_dev.zip
-│   ├── metadata_eval.zip
-│   ├── mic_dev_full.zip
-│   └── mic_eval.zip
-├── TAU_2021
-│   ├── foa_dev_full.zip
-│   ├── foa_eval.zip
-│   ├── metadata_dev.zip
-│   ├── metadata_eval.zip
-│   ├── mic_dev_full.zip
-│   └── mic_eval.zip
-└── TUT_2018
-    ├── ANSYN
-    │   ├── ov1_split1.zip
-    │   ├── ov1_split2.zip
-    │   ├── ov1_split3.zip
-    │   ├── ov2_split1.zip
-    │   ├── ov2_split2.zip
-    │   ├── ov2_split3.zip
-    │   ├── ov3_split1.zip
-    │   ├── ov3_split2.zip
-    │   └── ov3_split3.zip
-    └── REAL
-        ├── ov1_split1.zip
-        ├── ov1_split8.zip
-        ├── ov1_split9.zip
-        ├── ov2_split1.zip
-        ├── ov2_split8.zip
-        ├── ov2_split9.zip
-        ├── ov3_split1.zip
-        ├── ov3_split8.zip
-        └── ov3_split9.zip
+# Specify output location
+python run_analysis.py /path/to/docs --output ./reports --provider openai
 ```
 
-### Setup
-```
-$ conda create -n seld_w2v_dvc python=3.8 -y
-$ conda activate seld_w2v_dvc
-(seld_w2v_dvc) $ cd seld_wav2vec2/
-```
+## Supported LLM Providers
 
-Install data processing requirements
+| Provider | Env Variable | Default Model | Notes |
+|----------|--------------|---------------|-------|
+| `openai` | `OPENAI_API_KEY` | gpt-4o | Default provider |
+| `anthropic` | `ANTHROPIC_API_KEY` | claude-sonnet | |
+| `ollama` | (none needed) | llama3.1:70b | Local, set `OLLAMA_BASE_URL` if not localhost |
+| `azure` | `AZURE_OPENAI_API_KEY` | gpt-4o | Also set `AZURE_ENDPOINT` |
 
-```
-(seld_w2v_dvc) $ pip install -r dvc-requirements.txt
-(seld_w2v_dvc) $ pip install -e . --no-deps
-```
+### Customizing Models
 
-### steps
-
-The DVC stages are 
-
-1. ```unzip_pret_data``` $\rightarrow$ Outputs: data/pre-training/raw_3d_audio_data
-
-2. ```prepare_pret_dataset``` $\rightarrow$ Outputs: data/pre-training/pret_l3das22_raw_ts4_str4
-
-3. ```ft_dataset_tau2019```  $\rightarrow$ Outputs: data/fine-tuning/manifest/finetuning
-
-4. ```ft_dataset_tau2020``` $\rightarrow$ Outputs: data/fine-tuning/manifest/finetuning
-
-
-To execute all stages 
-
-```
-(seld_w2v) $ dvc repro 
+Set environment variables to use different models:
+```bash
+export OPENAI_MODEL="gpt-4-turbo"
+export OLLAMA_MODEL="mixtral:8x7b"
+export OLLAMA_BASE_URL="http://192.168.1.100:11434"
 ```
 
-and to execute a single step ```stage```
+## What It Does
 
-```
-(seld_w2v) $ dvc repro -s stage
-```
+1. **Extracts** text from all `.docx` files in your folder (and subfolders)
+2. **Analyzes** documents in batches using your chosen LLM to find conflicts
+3. **Generates** formatted reports:
+   - **HTML Report** - Interactive, filterable web page
+   - **Excel Report** - Spreadsheet with summary and detail sheets
 
+## Output Reports
 
-## Install and development (DEV)
+### HTML Report
+- Visual, color-coded conflict cards
+- Filter by severity (HIGH/MEDIUM/LOW)
+- Search functionality
+- Side-by-side document comparison
 
-```
-$ conda create -n seld_w2v python=3.8 cudatoolkit=11.3 cuDNN=8.2 -y
-$ conda activate seld_w2v
-(seld_w2v) $ cd seld_wav2vec2/
-```
+### Excel Report
+Three sheets:
+- **Summary** - Overview statistics
+- **Conflicts Detail** - All conflicts with full details
+- **HIGH Priority** - Quick reference for critical conflicts
 
-Install libsndfile library
+## Conflict Severity Levels
 
-```
-(seld_w2v) $ conda install -c conda-forge libsndfile -y
-```
+| Level | Description |
+|-------|-------------|
+| **HIGH** | Could cause safety, legal, or compliance issues |
+| **MEDIUM** | Could cause operational problems or confusion |
+| **LOW** | Minor inconsistencies in wording or approach |
 
-if you using GPU, I recommend to use CUDA 11.3 (or the next one)
+## Requirements
 
-```
-(seld_w2v) $ conda install pytorch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1 cudatoolkit=11.3 cuDNN=8.2 -c pytorch -y
-```
+- Python 3.8+
+- pandoc (for text extraction)
+- LLM provider credentials (see above)
 
-Then install the setup.py
+### Install Dependencies
 
-```
-(seld_w2v) $ pip install -r dev-requirements.txt
-(seld_w2v) $ pip install -e . --no-deps
-```
+```bash
+# Core dependencies
+pip install openpyxl requests
 
-Also, for faster training install NVIDIA's apex library
+# For OpenAI
+pip install openai
 
-```
-(seld_w2v) $ git clone https://github.com/NVIDIA/apex
-(seld_w2v) $ cd apex
+# For Anthropic
+pip install anthropic
 
-(seld_w2v) $ export CUDA_HOME=/usr/local/cuda-11.3
+# For Ollama - no extra packages needed (uses requests)
 
-(seld_w2v) $ pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" \
-  --global-option="--deprecated_fused_adam" --global-option="--xentropy" \
-  --global-option="--fast_multihead_attn" ./
-```
-
-## Pre-training
-
-To pre-train the wav2vec2-4ch it is necessary to segment the 3d audio files using the data processing steps above implemented in DVC. 
-
-
-To convert the wav2vec 2.0 to a 4 channel wav2vec2-4ch model use the [script](scripts/wav2vec_change_feature_extraction.py) that convert the original pre-trained models of wav2vec 2.0 to have 4 channels. 
-
-
-### Train wav2vec2-4ch BASE model
-
-```
-(seld_w2v) $ fairseq-hydra-train --config-dir conf/pretraining --config-name w2v_base_pret_audio_seld_l3das21_400K_ts4_str4_v1 task.data=data/pre-training/manifest/pretraining/l3das21_ts4_str4 model.pre_w2v_path=/path/to/models/w2v_audio_base_4ch_unorm.pt common.user_dir=/path/to/src/seld_wav2vec2
+# For Azure OpenAI
+pip install openai
 ```
 
+## Individual Scripts
 
-### Train wav2vec2-4ch LARGE model
+You can also run each step separately:
+
+```bash
+# Step 1: Extract text from documents
+python procedure_conflict_analyzer.py /path/to/docs --output extracted.json
+
+# Step 2: Analyze for conflicts
+python analyze_conflicts.py extracted.json --output conflicts.json
+
+# Step 3: Generate HTML report
+python generate_report.py conflicts.json conflict_report.html
+
+# Step 4: Generate Excel report  
+python generate_excel_report.py conflicts.json conflict_report.xlsx
+```
+
+## How It Works
+
+### Document Processing
+- Documents are processed in batches of 5 for thorough cross-comparison
+- Text is chunked to fit within API limits
+- Overlapping batches ensure all document pairs are compared
+
+### Conflict Detection
+The AI looks for actual contradictions where documents:
+- Give different instructions for the same procedure
+- Specify conflicting requirements, timeframes, or values
+- Have incompatible steps or processes
+
+It does **NOT** flag:
+- Documents covering different topics
+- Minor wording differences with same meaning
+- Missing information (one doc covers topic, another doesn't)
+
+### Deduplication
+Conflicts found across multiple batches are automatically deduplicated.
+
+## Tips for Best Results
+
+1. **Organize documents** - Put related procedures in the same folder
+2. **Name files clearly** - Descriptive filenames help identify conflicts
+3. **200 docs is fine** - The tool batches efficiently for large document sets
+4. **Review HIGH first** - Start with high-severity conflicts
+
+## Example Output
 
 ```
-(seld_w2v) $ fairseq-hydra-train --config-dir conf/pretraining --config-name w2v_large_pret_audio_seld_l3das22_600K_ts4_str4_v1 task.data=data/pre-training/manifest/pretraining/l3das21_ts4_str4 model.pre_w2v_path=/path/to/models/w2v_audio_large_4ch_norm.pt common.user_dir=/path/to/seld_wav2vec2/src/seld_wav2vec2
+╔══════════════════════════════════════════════════════════════╗
+║     PROCEDURE DOCUMENT CONFLICT ANALYZER                     ║
+╚══════════════════════════════════════════════════════════════╝
+
+📄 STEP 1: Extracting text from documents...
+Found 47 .docx files
+Processing [1/47]: safety_procedure_v1.docx
+...
+✅ Extracted 47 documents
+
+🔍 STEP 2: Analyzing documents for conflicts...
+Analyzing batch 1/10...
+...
+✅ Analysis complete: 12 conflicts found
+
+📊 STEP 3: Generating reports...
+✅ HTML report: conflict_report_20240115_143022.html
+✅ Excel report: conflict_report_20240115_143022.xlsx
+
+═══════════════════════════════════════════════════════════════
+📋 ANALYSIS SUMMARY
+═══════════════════════════════════════════════════════════════
+Documents Analyzed: 47
+Total Conflicts:    12
+  • HIGH severity:   2
+  • MEDIUM severity: 6
+  • LOW severity:    4
+═══════════════════════════════════════════════════════════════
 ```
 
+## Troubleshooting
 
-## Fine-tuning 
+**"No documents found"**
+- Check the folder path is correct
+- Ensure files have `.docx` extension (not `.doc`)
 
-Fine-tuning the pre-trained wav2vec2-4ch models on labeled datasets 
+**"API Error"**
+- Verify your ANTHROPIC_API_KEY is set correctly
+- Check your API quota
 
-```
-fairseq-hydra-train --config-dir /path/to/conf/finetuning --config-name exp.yaml task.data=/path/to/manifest model.w2v_path=/path/to/model.pt common.user_dir=/path/to/seld_wav2vec2/src/seld_wav2vec2
-
-```
-
-The ```config-name``` represent the .yaml experiments that are in ```conf/finetuning```.
-
-
-# License
-
-seld_wav2vec2(-py) is MIT-licensed.
-The license applies to the pre-trained models as well.
-
-
-# Paper Arxiv
-
-
-[w2v-SELD: A Sound Event Localization and Detection Framework for Self-Supervised Spatial Audio Pre-Training](http://arxiv.org/abs/2312.06907)
-
-# Citation
-
-Please cite as:
-
-``` bibtex
-@misc{santos2023w2vseld,
-      title={w2v-SELD: A Sound Event Localization and Detection Framework for Self-Supervised Spatial Audio Pre-Training}, 
-      author={Orlem Lima dos Santos and Karen Rosero and Roberto de Alencar Lotufo},
-      year={2023},
-      eprint={2312.06907},
-      archivePrefix={arXiv},
-      primaryClass={eess.AS}
-}
-```
+**"Could not extract text"**
+- Ensure pandoc is installed: `apt install pandoc` or `brew install pandoc`
+- Check the file isn't corrupted
